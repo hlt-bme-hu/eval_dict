@@ -33,6 +33,8 @@ def parse_args():
                    default='simple')
     p.add_argument('--headword', action='store_true', default=False,
                    help='Build headword graph only')
+    p.add_argument('--square', action='store_true', default=False,
+                   help='Square adjacency mtx')
     return p.parse_args()
 
 
@@ -49,7 +51,7 @@ class Graph(object):
             for edge in sense['definition']['deps']:
                 t = Dependencies.parse_dependency(edge)
                 typ = t[0]
-                src = t[1][0]
+                # src = t[1][0]
                 tgt = t[2][0]
                 if headword_only:
                     if typ == 'root':
@@ -112,16 +114,18 @@ class Graph(object):
                 for w2, sim in sorted(words.iteritems(), key=lambda x: x[0]):
                     f.write('{0}\t{1}\t{2}\n'.format(w1, w2, sim))
 
-    def compute_laplacian(self, laplacian_type='simple'):
+    def compute_laplacian(self, laplacian_type='simple', square=False):
         am = nx.adjacency_matrix(self.graph)
+        if square:
+            am = am.dot(am)
         if laplacian_type == 'simple':
             return laplacian(am).asfptype()
         elif laplacian_type == 'normalized':
             return laplacian(am, normed=True).asfptype()
         raise Exception('Unknown Laplacian type: {}'.format(laplacian_type))
 
-    def compute_svd(self, k, laplacian_type='simple'):
-        lp = self.compute_laplacian(laplacian_type)
+    def compute_svd(self, k, laplacian_type='simple', square=False):
+        lp = self.compute_laplacian(laplacian_type, square)
         U, S, V = svds(lp, k=k)
         self.U = U
         self.S = np.diag(S)
@@ -178,7 +182,8 @@ def main():
     args = parse_args()
     g = build_graph(args.definitions, args.headword)
     logging.info("Definition graph loaded")
-    g.compute_svd(k=args.k, laplacian_type=args.laplacian_type)
+    g.compute_svd(k=args.k, laplacian_type=args.laplacian_type,
+                  square=args.square)
     logging.info("SVD finished")
     g.save_svd(prefix=args.save_svd)
     g.save_dictionary(args.dictionary)
