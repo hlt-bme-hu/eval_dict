@@ -22,13 +22,13 @@ def parse_args():
     p.add_argument('--left-dictionary', type=str, default='')
     p.add_argument('--right-dictionary', type=str, default='')
     p.add_argument('--left-type', choices=['numpy', 'glove', 'word2vec'],
-                                           default='numpy')
+                   default='numpy')
     p.add_argument('--right-type', choices=['numpy', 'glove', 'word2vec'],
-                                           default='numpy')
+                   default='numpy')
     return p.parse_args()
 
 
-def load_matrix_and_dictionary(fn, typ, dict_fn=None):
+def load_matrix_and_dictionary(fn, typ, dict_fn=None, filt_dict=None):
     if typ == 'numpy':
         return np.load(fn), load_dictionary_as_dict(dict_fn)
     elif typ == 'glove':
@@ -41,15 +41,19 @@ def load_matrix_and_dictionary(fn, typ, dict_fn=None):
             m = Word2Vec.load_word2vec_format(fn, binary=False)
         else:
             m = Word2Vec.load_word2vec_format(fn, binary=True)
-        return extract_wordvec_matrix_and_dict(m)
+        return extract_wordvec_matrix_and_dict(m, filt_dict)
     raise Exception('Unknown matrix format: {}'.format(typ))
 
 
-def extract_wordvec_matrix_and_dict(model):
+def extract_wordvec_matrix_and_dict(model, filt_dict=None):
     mtx = []
     dictionary = {}
-    for i, (word, vec) in enumerate(model.vocab.iteritems()):
+    i = 0
+    for word, vec in model.vocab.iteritems():
+        if filt_dict is not None and word not in filt_dict:
+            continue
         dictionary[word] = i
+        i += 1
         mtx.append(model[word])
     return np.array(mtx), dictionary
 
@@ -109,6 +113,7 @@ def load_dictionary(fn):
     with open(fn) as f:
         return [l.decode('utf8').strip() for l in f]
 
+
 def print_stats(dictionary, mtx, typ, mtx_from=None, mtx_to=None):
     if typ == 'cos':
         print_cos_similarities(dictionary, mtx)
@@ -122,11 +127,13 @@ def print_cos_similarities(dictionary, sim_mtx):
 
 
 def print_transform_similarities(dictionary, transform_mtx, mtx_from, mtx_to):
+    tr_tr = transform_mtx.transpose()
     for i, word in enumerate(dictionary):
         src = mtx_from[i]
         tgt = mtx_to[i]
-        dist = 1 - cosine(transform_mtx.dot(src), tgt)
-        print(u'{0}\t{1}'.format(word, dist).encode('utf8'))
+        dist1 = 1 - cosine(transform_mtx.dot(src), tgt)
+        dist2 = 1 - cosine(tr_tr.dot(tgt), src)
+        print(u'{0}\t{1}\t{2}'.format(word, dist1, dist2).encode('utf8'))
 
 
 def guess_dictname(mtx_fn, typ, dict_fn):
@@ -139,10 +146,16 @@ def guess_dictname(mtx_fn, typ, dict_fn):
 
 def main():
     args = parse_args()
-    left_dictionary = guess_dictname(args.matrix1, args.left_type, args.left_dictionary)
-    right_dictionary = guess_dictname(args.matrix2, args.right_type, args.right_dictionary)
-    m1, d1 = load_matrix_and_dictionary(args.matrix1, args.left_type, left_dictionary)
-    m2, d2 = load_matrix_and_dictionary(args.matrix2, args.right_type, right_dictionary)
+    left_dictionary = guess_dictname(args.matrix1,
+                                     args.left_type, args.left_dictionary)
+    right_dictionary = guess_dictname(args.matrix2,
+                                      args.right_type, args.right_dictionary)
+    m1, d1 = load_matrix_and_dictionary(args.matrix1,
+                                        args.left_type, left_dictionary)
+    m2, d2 = load_matrix_and_dictionary(args.matrix2,
+                                        args.right_type,
+                                        right_dictionary,
+                                        filt_dict=d1)
     m1, m2, common = filter_to_common_words(m1, m2, d1, d2)
     if args.type == 'cos':
         transform = compute_cos_sim(m1, m2)
@@ -153,8 +166,6 @@ def main():
     if args.output:
         np.save(args.output, transform)
     print_stats(common, transform.transpose(), args.type, m1, m2)
-
-
 
 if __name__ == '__main__':
     main()
